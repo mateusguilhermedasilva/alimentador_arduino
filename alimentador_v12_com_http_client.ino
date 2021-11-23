@@ -7,7 +7,9 @@
 #include <EEPROM.h> //necessario para gravar os horarios na eeprom
 #include <BridgeHttpClient.h> //faz as chamadas para a API
 #include <TembooYunShield.h> //classe utilizada para enviar email
-#include "TembooAccount.h" //contem as informações da conta temboo 
+#include "TembooAccount.h" //contem as informações da conta temboo
+#include <HttpClient.h> 
+#include <HTTPClient.h>
 
 #include <ArduinoJson.h> //usado para trabalharmos com json
 
@@ -48,8 +50,9 @@ Ultrasonic ultrasonic(11, 12);
 //referente ao processo que obtem data e hora do Linux do Arduino YUN
 Process date;
 
-//variavel que armazena quando foi a utlima realização das tarefas que devem ocorer de minuto em minuto
-unsigned long minutoEmMinito = 0;
+//variavel que armazena quando foi a utlima realização das tarefas que devem ocorer de minuto em minuto, porem nesse caso checamos de 10 em 10 segundos se houve uma mudança de minuto
+unsigned long dezEmDezSegundos = 0;
+unsigned short ultimoMinuto = 0; 
 
 //variavel que armazena quando foi a utlima realização das tarefas que devem ocorer de segundo em segundo
 unsigned long segundoEmSegundo = 0;
@@ -119,10 +122,24 @@ void setup() {
 void loop() {
 
   //ações que devem ocorrer de minuto em minuto
-  if (millis() - minutoEmMinito >= 60000) {
-    minutoEmMinito = millis();
-    checaSeEhoraDeLiberarRacao();
-    sendSensores();
+  //porem estou verificando de dez em dez segundos se o minuto mudou
+  if (millis() - dezEmDezSegundos >= 10000) {
+    dezEmDezSegundos = millis();
+    date.begin("date");
+    date.addParameter("+%M");
+    date.run();
+    String minuto;
+    while (date.available() > 0) {
+      minuto = date.readStringUntil('\n');
+    }
+    
+    //verifica se mudou o minuto
+    if(ultimoMinuto!=minuto.toInt()){
+      ultimoMinuto=minuto.toInt();
+      checaSeEhoraDeLiberarRacao();
+      sendSensores();
+    }
+    
   }
 
   //ações que devem ocorrer de segundo em segundo
@@ -147,7 +164,8 @@ void sendSensores() {
       {"nivel":"Vazio","umidade":"48.80","temperatura":"30.10","ultimaLiberacao":{"dataUltimaLiberacao":"22/10/2021 20:42:22","quantidadeSolicitada":"30","quantidadeLiberada":"-0.11","status":"erro"}}
    *  */
 
-  BridgeHttpClient bridgeHttpClientPost;
+  //BridgeHttpClient bridgeHttpClientPost;
+  HttpClient bridgeHttpClientPost;
 
   Console.println(F("inicio leitura de sensores"));
   Console.flush();
@@ -175,9 +193,11 @@ void sendSensores() {
     //Leitura da temperatura (Celsius)
     String temperatura = (String)dht.readTemperature();
 
-    //adicionando os header referentes a json
-    bridgeHttpClientPost.addHeader("Accept: application/json");
-    bridgeHttpClientPost.addHeader("Content-Type: application/json");
+
+    //bridgeHttpClientPost.addHeader("Accept: application/json");
+    //bridgeHttpClientPost.addHeader("Content-Type: application/json");
+    bridgeHttpClientPost.setHeader("Accept: application/json");
+    bridgeHttpClientPost.setHeader("Content-Type: application/json");
 
     //antes de criar o json com as informações dos sensores verificar a variavel ultimaLiberacao
     //se a ultima liberação estiver vazia, nunca houve uma liberação de ração entao formate a variavel ultimaLiberacao com o padrao de json vazio {}
@@ -206,8 +226,8 @@ void sendSensores() {
       char c = bridgeHttpClientPost.read();
       Console.print(c);
     }
-    Console.print(F("\nResponse Code: "));
-    Console.println(bridgeHttpClientPost.getResponseCode());
+    //Console.print(F("\nResponse Code: "));
+    //Console.println(bridgeHttpClientPost.getResponseCode());
     Console.flush();
 
     bridgeHttpClientPost.flush();
@@ -230,7 +250,8 @@ void getComandos() {
        {"envioDeEmail":{msilva10@universo.univates.br}} = envio de feedback por email para esse destinatario
    *   */
 
-  BridgeHttpClient bridgeHttpClientGet;
+  //BridgeHttpClient bridgeHttpClientGet;
+  HttpClient bridgeHttpClientGet;
 
   //cria uma string com a url de requisição de comando
   String stringRequisicao = ("http://177.44.248.45:3300/comando/" + serialAlimentador);
